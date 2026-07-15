@@ -59,16 +59,13 @@
     "./voice": "./api/voice.ts",
     "./keyboard": "./api/keyboard.ts"
   },
-  "pi": {
-    "extensions": [
-      "./index.ts"
-    ],
-    "image": "https://github.com/evandrodevbr/oh-my-pi-telegram/raw/main/screenshot.png"
-  },
   "omp": {
     "name": "oh-my-pi-telegram",
     "displayName": "Telegram bridge for Oh My Pi (omp)",
     "homepage": "https://github.com/evandrodevbr/oh-my-pi-telegram",
+    "extensions": [
+      "./index.ts"
+    ],
     "compatibleWith": {
       "@oh-my-pi/pi-coding-agent": ">=16.5.2"
     }

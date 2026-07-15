@@ -87,10 +87,21 @@ test("Public package subpaths expose the stable extension API", async () => {
   assert.deepEqual(Object.keys(keyboard), []);
 });
 
-test("Activity API declares the Pi lifecycle compatibility floor", async () => {
+test("Package declares the OMP extension entry point and Pi lifecycle compatibility floor", async () => {
   const packageJson = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
-  ) as { peerDependencies?: Record<string, string> };
+  ) as {
+    omp?: {
+      compatibleWith?: Record<string, string>;
+      extensions?: string[];
+    };
+    peerDependencies?: Record<string, string>;
+  };
+  assert.deepEqual(packageJson.omp?.extensions, ["./index.ts"]);
+  assert.equal(
+    packageJson.omp?.compatibleWith?.["@oh-my-pi/pi-coding-agent"],
+    ">=16.5.2",
+  );
   assert.equal(
     packageJson.peerDependencies?.["@earendil-works/pi-coding-agent"],
     ">=0.80.6",
