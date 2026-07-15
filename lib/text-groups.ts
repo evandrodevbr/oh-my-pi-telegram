@@ -1,0 +1,266 @@
+/**
+ * Telegram text-group coalescing helpers
+ * Zones: telegram inbound, queue admission, split-message recovery
+ * Owns conservative delayed grouping for Telegram text messages that look like automatic long-message splits
+ */
+
+const TELEGRAM_TEXT_GROUP_DEBOUNCE_MS = 1000;
+const TELEGRAM_TEXT_GROUP_MIN_SPLIT_LENGTH = 3600;
+const TELEGRAM_TEXT_GROUP_MAX_MESSAGE_ID_GAP = 12;
+
+export interface TelegramTextGroupMessage {
+  message_id: number;
+  media_group_id?: string;
+  chat: { id: number };
+  message_thread_id?: number;
+  from?: { id: number; is_bot?: boolean };
+  text?: string;
+  caption?: string;
+}
+
+export interface TelegramTextGroupState<TMessage, TContext = unknown> {
+  messages: TMessage[];
+  context?: TContext;
+  flushTimer?: ReturnType<typeof setTimeout>;
+  dispatching?: boolean;
+  suspended?: boolean;
+  reschedule?: () => void;
+}
+
+export interface TelegramTextGroupController<TMessage, TContext = unknown> {
+  queueMessage: (options: {
+    message: TMessage;
+    context: TContext;
+    dispatchMessages: (
+      messages: TMessage[],
+      ctx: TContext,
+    ) => unknown | Promise<unknown>;
+  }) => boolean;
+  suspend: () => void;
+  resume: (context: TContext) => void;
+  clear: () => void;
+}
+
+export interface TelegramTextGroupControllerOptions {
+  debounceMs?: number;
+  minSplitLength?: number;
+  setTimer?: (
+    callback: () => void,
+    ms: number,
+  ) => ReturnType<typeof setTimeout>;
+  clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
+}
+
+export interface TelegramTextGroupDispatchRuntime<
+  TMessage extends TelegramTextGroupMessage,
+  TContext,
+> {
+  handleMessage: (message: TMessage, ctx: TContext) => Promise<void>;
+}
+
+export interface TelegramGroupedInputClearerDeps {
+  clearMediaGroups: () => void;
+  clearTextGroups: () => void;
+}
+
+function extractTelegramTextGroupText(
+  message: TelegramTextGroupMessage,
+): string {
+  return typeof message.text === "string" ? message.text : "";
+}
+
+function isTelegramTextGroupCommand(text: string): boolean {
+  return text.trimStart().startsWith("/");
+}
+
+function getTelegramTextGroupKey(
+  message: TelegramTextGroupMessage,
+): string | undefined {
+  if (message.media_group_id) return undefined;
+  if (!message.from || message.from.is_bot) return undefined;
+  if (typeof message.text !== "string") return undefined;
+  const threadKey =
+    typeof message.message_thread_id === "number"
+      ? `thread:${message.message_thread_id}`
+      : "private";
+  return `${message.chat.id}:${threadKey}:${message.from.id}`;
+}
+
+function canStartTelegramTextGroup(
+  message: TelegramTextGroupMessage,
+  minSplitLength: number,
+): boolean {
+  const text = extractTelegramTextGroupText(message);
+  return text.length >= minSplitLength && !isTelegramTextGroupCommand(text);
+}
+
+function canAppendTelegramTextGroupMessage<
+  TMessage extends TelegramTextGroupMessage,
+>(
+  state: TelegramTextGroupState<TMessage, unknown>,
+  message: TMessage,
+): boolean {
+  const text = extractTelegramTextGroupText(message);
+  const previous = state.messages.at(-1);
+  return (
+    !!previous &&
+    message.message_id > previous.message_id &&
+    message.message_id <=
+      previous.message_id + TELEGRAM_TEXT_GROUP_MAX_MESSAGE_ID_GAP &&
+    text.length > 0 &&
+    !isTelegramTextGroupCommand(text)
+  );
+}
+
+export function queueTelegramTextGroupMessage<
+  TMessage extends TelegramTextGroupMessage,
+  TContext = unknown,
+>(options: {
+  message: TMessage;
+  context: TContext;
+  groups: Map<string, TelegramTextGroupState<TMessage, TContext>>;
+  debounceMs: number;
+  minSplitLength: number;
+  setTimer: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
+  dispatchMessages: (
+    messages: TMessage[],
+    ctx: TContext,
+  ) => unknown | Promise<unknown>;
+}): boolean {
+  const key = getTelegramTextGroupKey(options.message);
+  if (!key) return false;
+  const existing = options.groups.get(key);
+  if (
+    !existing &&
+    !canStartTelegramTextGroup(options.message, options.minSplitLength)
+  )
+    return false;
+  if (existing && !canAppendTelegramTextGroupMessage(existing, options.message))
+    return false;
+  const state = existing ?? { messages: [] };
+  state.messages.push(options.message);
+  state.context = options.context;
+  const scheduleDispatch = (): void => {
+    if (state.suspended) return;
+    state.flushTimer = options.setTimer(() => {
+      state.flushTimer = undefined;
+      const queued = options.groups.get(key);
+      if (!queued || queued.context === undefined) return;
+      if (queued.dispatching) {
+        scheduleDispatch();
+        return;
+      }
+      const dispatchedMessages = [...queued.messages];
+      const dispatchedIds = new Set(
+        dispatchedMessages.map((message) => message.message_id),
+      );
+      queued.dispatching = true;
+      void Promise.resolve(
+        options.dispatchMessages(dispatchedMessages, queued.context),
+      ).then(
+        () => {
+          if (options.groups.get(key) !== queued) return;
+          queued.messages = queued.messages.filter(
+            (message) => !dispatchedIds.has(message.message_id),
+          );
+          queued.dispatching = false;
+          if (queued.messages.length === 0) options.groups.delete(key);
+          else if (!queued.flushTimer) scheduleDispatch();
+        },
+        () => {
+          if (options.groups.get(key) !== queued) return;
+          queued.dispatching = false;
+          if (!queued.flushTimer) scheduleDispatch();
+        },
+      );
+    }, options.debounceMs);
+    state.flushTimer.unref?.();
+  };
+  state.reschedule = scheduleDispatch;
+  if (state.flushTimer) options.clearTimer(state.flushTimer);
+  scheduleDispatch();
+  options.groups.set(key, state);
+  return true;
+}
+
+export function createTelegramTextGroupController<
+  TMessage extends TelegramTextGroupMessage,
+  TContext = unknown,
+>(
+  options: TelegramTextGroupControllerOptions = {},
+): TelegramTextGroupController<TMessage, TContext> {
+  const groups = new Map<string, TelegramTextGroupState<TMessage, TContext>>();
+  const debounceMs = options.debounceMs ?? TELEGRAM_TEXT_GROUP_DEBOUNCE_MS;
+  const minSplitLength =
+    options.minSplitLength ?? TELEGRAM_TEXT_GROUP_MIN_SPLIT_LENGTH;
+  const setTimer =
+    options.setTimer ??
+    ((callback: () => void, ms: number): ReturnType<typeof setTimeout> =>
+      setTimeout(callback, ms));
+  const clearTimer = options.clearTimer ?? clearTimeout;
+  return {
+    queueMessage: ({ message, context, dispatchMessages }) =>
+      queueTelegramTextGroupMessage({
+        message,
+        context,
+        groups,
+        debounceMs,
+        minSplitLength,
+        setTimer,
+        clearTimer,
+        dispatchMessages,
+      }),
+    suspend: () => {
+      for (const state of groups.values()) {
+        state.suspended = true;
+        if (state.flushTimer) clearTimer(state.flushTimer);
+        state.flushTimer = undefined;
+      }
+    },
+    resume: (context) => {
+      for (const state of groups.values()) {
+        state.context = context;
+        state.suspended = false;
+        if (!state.dispatching && !state.flushTimer) state.reschedule?.();
+      }
+    },
+    clear: () => {
+      for (const state of groups.values()) {
+        if (state.flushTimer) clearTimer(state.flushTimer);
+      }
+      groups.clear();
+    },
+  };
+}
+
+export function createTelegramTextGroupDispatchRuntime<
+  TMessage extends TelegramTextGroupMessage,
+  TContext,
+>(deps: {
+  textGroups: TelegramTextGroupController<TMessage, TContext>;
+  dispatchMessages: (messages: TMessage[], ctx: TContext) => Promise<void>;
+  dispatchSingleMessage: (message: TMessage, ctx: TContext) => Promise<void>;
+}): TelegramTextGroupDispatchRuntime<TMessage, TContext> {
+  return {
+    handleMessage: async (message, ctx) => {
+      const queuedTextGroup = deps.textGroups.queueMessage({
+        message,
+        context: ctx,
+        dispatchMessages: (messages, queuedCtx) =>
+          deps.dispatchMessages(messages, queuedCtx),
+      });
+      if (queuedTextGroup) return;
+      await deps.dispatchSingleMessage(message, ctx);
+    },
+  };
+}
+
+export function createTelegramGroupedInputClearer(
+  deps: TelegramGroupedInputClearerDeps,
+): () => void {
+  return () => {
+    deps.clearMediaGroups();
+    deps.clearTextGroups();
+  };
+}
