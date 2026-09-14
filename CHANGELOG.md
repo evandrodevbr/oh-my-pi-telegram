@@ -5,6 +5,7 @@
 - **Security overrides refreshed** — `protobufjs` `7.6.4` → `7.6.6`, `undici` `8.5.0` → `8.10.2`, and a new `brace-expansion` `5.0.9` override keep `npm audit` at 0 vulnerabilities; the `validate` gate (`typecheck` → `test` → `audit` → `pack:check`) passes again.
 - **README rewritten** to the repository audit standard: verified install/build/test commands, the real `omp install` syntax, omp agent-directory resolution, and an explicit limitations section.
 - **Release notes extraction fixed** — the `0.22.0-evandro.1` fork section promoted from `###` to `##` so `.github/workflows/release.yml` can build release notes for tag `v0.22.0-evandro.1`.
+- **Bus ledger test made timing-independent** — `tests/bus.test.ts` no longer assumes the first bus envelope reaches the server within a fixed 5 ms, which failed on a slower CI runner (`0 !== 1`). The `Validate` workflow is green again on `main`.
 
 ## 0.22.0-evandro.1 — Evandro Fonseca Junior fork (oh-my-pi-telegram)
 

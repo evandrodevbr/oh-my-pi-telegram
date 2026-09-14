@@ -218,7 +218,7 @@ Everything below was executed in this repository on Node 24.20.0 / npm 11.19.0 (
 | `omp install <local path>` | exit 0, `Linked @evandrodevbr/oh-my-pi-telegram from .` (the link was reverted afterwards to leave the machine as it was) |
 | `omp install --link <path>` | fails: `Unknown option '--link'` (kept out of this README) |
 
-The test suite is deterministic and offline: transport calls are injected, so no live Telegram bot is required. The live Telegram paths (long polling, Rich Messages, Threaded Mode threading) are not exercised here beyond the CI history of `main` (last `Validate` run: success, 2026-07-15).
+The test suite is deterministic and offline: transport calls are injected, so no live Telegram bot is required. Live Telegram paths (long polling, Rich Messages, Threaded Mode threading) are covered by the operator's own smoke sessions, not by this suite; the `Validate` workflow (npm ci + `npm run validate` on Node 24) is green on `main` (run 34838605928, 2026-09-14).
 
 ## Current state and limitations
 
