@@ -1060,7 +1060,12 @@ test("Bus local server memoizes completed and in-flight request results", async 
     };
     const first = sendTelegramBusLocalEnvelope({ socketPath, envelope });
     const duplicate = sendTelegramBusLocalEnvelope({ socketPath, envelope });
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    // Wait for the first envelope to reach the handler instead of assuming a
+    // fixed delivery time; the duplicate must still be memoized while in flight.
+    const deliveryDeadlineMs = Date.now() + 5_000;
+    while (executions === 0 && Date.now() < deliveryDeadlineMs) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
     assert.equal(executions, 1);
     release?.();
     const [firstResult, duplicateResult] = await Promise.all([first, duplicate]);
