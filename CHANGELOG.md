@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-### 0.22.0-evandro.1 — Evandro Fonseca Junior fork (oh-my-pi-telegram)
+- **Security overrides refreshed** — `protobufjs` `7.6.4` → `7.6.6`, `undici` `8.5.0` → `8.10.2`, and a new `brace-expansion` `5.0.9` override keep `npm audit` at 0 vulnerabilities; the `validate` gate (`typecheck` → `test` → `audit` → `pack:check`) passes again.
+- **README rewritten** to the repository audit standard: verified install/build/test commands, the real `omp install` syntax, omp agent-directory resolution, and an explicit limitations section.
+- **Release notes extraction fixed** — the `0.22.0-evandro.1` fork section promoted from `###` to `##` so `.github/workflows/release.yml` can build release notes for tag `v0.22.0-evandro.1`.
+
+## 0.22.0-evandro.1 — Evandro Fonseca Junior fork (oh-my-pi-telegram)
 
 - **Repackaged as `@evandrodevbr/oh-my-pi-telegram`** — version suffix `-evandro.1` keeps the 0.22.0 source line (SHA `afe09c5`) traceable to upstream `llblab/pi-telegram` while making the fork unambiguous in the `omp` extension registry.
 - **Oh My Pi (omp) compatibility metadata** — added an `omp` field in `package.json` (displayName, homepage, `compatibleWith: { "@oh-my-pi/pi-coding-agent": ">=16.5.2" }`) so the fork is discoverable as a first-class extension for `can1357/oh-my-pi` (`omp >= 16.5.2`).
