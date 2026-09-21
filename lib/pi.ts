@@ -149,8 +149,76 @@ export function createExtensionApiRuntimePorts(
   };
 }
 
+const ENABLED_MODELS_SETTINGS_KEY = "enabledModels";
+
+/**
+ * Shape of the settings object handed back by the host runtime.
+ *
+ * Upstream Pi returns a `SettingsManager` with `reload`/`getEnabledModels`/
+ * `setEnabledModels`. Pi-compatible forks (Oh My Pi) return a generic settings
+ * store instead: `reloadFromDisk` plus keyed `get`/`set` accessors. Every member
+ * is optional so the adapter can feature-detect instead of crashing the update
+ * loop when a host omits one.
+ */
+interface HostSettingsManager {
+  reload?: () => unknown;
+  reloadFromDisk?: () => unknown;
+  flush?: () => unknown;
+  getEnabledModels?: () => unknown;
+  setEnabledModels?: (patterns: string[] | undefined) => unknown;
+  get?: (key: string) => unknown;
+  set?: (key: string, value: unknown) => unknown;
+}
+
+function toScopedModelPatterns(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const patterns = value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0,
+  );
+  return patterns.length > 0 ? patterns : undefined;
+}
+
+/** Normalize a host settings object onto the bridge-facing settings contract. */
+export function adaptSettingsManager(host: unknown): PiSettingsManager {
+  const settings = (host ?? {}) as HostSettingsManager;
+  return {
+    reload: async () => {
+      if (typeof settings.reload === "function") {
+        await settings.reload();
+        return;
+      }
+      if (typeof settings.reloadFromDisk === "function") {
+        await settings.reloadFromDisk();
+      }
+    },
+    flush: async () => {
+      if (typeof settings.flush === "function") {
+        await settings.flush();
+      }
+    },
+    getEnabledModels: () => {
+      if (typeof settings.getEnabledModels === "function") {
+        return toScopedModelPatterns(settings.getEnabledModels());
+      }
+      if (typeof settings.get === "function") {
+        return toScopedModelPatterns(settings.get(ENABLED_MODELS_SETTINGS_KEY));
+      }
+      return undefined;
+    },
+    setEnabledModels: (patterns) => {
+      if (typeof settings.setEnabledModels === "function") {
+        settings.setEnabledModels(patterns);
+        return;
+      }
+      if (typeof settings.set === "function") {
+        settings.set(ENABLED_MODELS_SETTINGS_KEY, patterns ?? []);
+      }
+    },
+  };
+}
+
 export function createSettingsManager(cwd: string): PiSettingsManager {
-  return SettingsManager.create(cwd);
+  return adaptSettingsManager(SettingsManager.create(cwd));
 }
 
 export function createScopedModelPatternPersister(deps: {

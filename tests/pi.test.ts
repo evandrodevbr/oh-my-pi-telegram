@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  adaptSettingsManager,
   canStartPollingInExtensionContext,
   compactExtensionContext,
   createExtensionApiRuntimePorts,
@@ -128,6 +129,64 @@ test("Pi scoped model persister invalidates cached inputs without clearing live 
     "flush",
     "clear-cache",
   ]);
+});
+
+test("Pi settings adapter drives fork hosts that expose keyed settings accessors", async () => {
+  const events: string[] = [];
+  const store: Record<string, unknown> = { enabledModels: ["openai/gpt-5"] };
+  const settings = adaptSettingsManager({
+    reloadFromDisk: async () => {
+      events.push("reload-from-disk");
+    },
+    flush: async () => {
+      events.push("flush");
+    },
+    get: (key: string) => store[key],
+    set: (key: string, value: unknown) => {
+      store[key] = value;
+    },
+  });
+
+  await settings.reload();
+  assert.deepEqual(settings.getEnabledModels(), ["openai/gpt-5"]);
+
+  settings.setEnabledModels(["anthropic/claude-opus-5"]);
+  assert.deepEqual(store.enabledModels, ["anthropic/claude-opus-5"]);
+
+  settings.setEnabledModels(undefined);
+  assert.deepEqual(store.enabledModels, []);
+  assert.equal(settings.getEnabledModels(), undefined);
+
+  await settings.flush();
+  assert.deepEqual(events, ["reload-from-disk", "flush"]);
+});
+
+test("Pi settings adapter prefers upstream methods and tolerates missing ones", async () => {
+  const events: string[] = [];
+  const upstream = adaptSettingsManager({
+    reload: async () => {
+      events.push("reload");
+    },
+    reloadFromDisk: async () => {
+      events.push("reload-from-disk");
+    },
+    getEnabledModels: () => ["openai/gpt-5"],
+    setEnabledModels: (patterns: string[] | undefined) => {
+      events.push(`set:${patterns?.join(",") ?? "all"}`);
+    },
+  });
+
+  await upstream.reload();
+  assert.deepEqual(upstream.getEnabledModels(), ["openai/gpt-5"]);
+  upstream.setEnabledModels(undefined);
+  await upstream.flush();
+  assert.deepEqual(events, ["reload", "set:all"]);
+
+  const bare = adaptSettingsManager({});
+  await bare.reload();
+  await bare.flush();
+  assert.equal(bare.getEnabledModels(), undefined);
+  bare.setEnabledModels(["openai/gpt-5"]);
 });
 
 test("Pi context helpers expose model, idle, pending-message, and compact adapters", () => {

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `Host Settings Compatibility`: `lib/pi.ts` now normalizes the host settings object instead of assuming upstream Pi's `SettingsManager` method names. Oh My Pi hands back a generic settings store (`reloadFromDisk` plus keyed `get`/`set`) with no `reload`, `getEnabledModels`, or `setEnabledModels`, which made every model-menu update die with `settingsManager.reload is not a function` and get dropped after three polling retries. Impact: `/model` menus, scoped-model reads, and scoped-model persistence work on both upstream Pi and omp hosts.
 - **Security overrides refreshed** — `protobufjs` `7.6.4` → `7.6.6`, `undici` `8.5.0` → `8.10.2`, and a new `brace-expansion` `5.0.9` override keep `npm audit` at 0 vulnerabilities; the `validate` gate (`typecheck` → `test` → `audit` → `pack:check`) passes again.
 - **README rewritten** to the repository audit standard: verified install/build/test commands, the real `omp install` syntax, omp agent-directory resolution, and an explicit limitations section.
 - **Release notes extraction fixed** — the `0.22.0-evandro.1` fork section promoted from `###` to `##` so `.github/workflows/release.yml` can build release notes for tag `v0.22.0-evandro.1`.
