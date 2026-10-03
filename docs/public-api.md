@@ -59,6 +59,14 @@ Hidden compatibility shortcuts may open sections directly: `/help`, `/status`, `
 
 This command surface is a mobile companion subset, not a raw terminal-command bridge or session browser. A Telegram destination follows its assigned Pi instance and sends prompts into that instance's currently active session; it is not permanently bound to one session identity. Compaction operates on the current session, while new-session, resume, fork, tree navigation, session switching, TUI transcript clearing, and arbitrary slash-command dispatch stay out of the stable Telegram API unless Pi exposes safe public extension hooks for them.
 
+#### Model and thinking controls
+
+The thinking menu, opened from `/start` or `/thinking`, lists the active model's supported levels in the established order. Explicit non-reasoning metadata resolves to `off`; the existing non-reasoning callback guard still refuses thinking changes. When capability metadata is absent, the previous full-ladder fallback remains available.
+
+- On omp, the menu contains the native `off` selector followed by supported thinking efforts. `off` disables reasoning and is not itself an effort, so it remains available even when omitted from `thinking.efforts`. An OMP-shaped `thinking` field without controllable efforts leaves only `off`. This metadata takes precedence over Pi thinking-level mappings when both are present, following omp's [native selector resolution](https://github.com/can1357/oh-my-pi/blob/717f97f4d22b3d65c4a4eef6a744255d46f4d1a6/packages/tui/src/thinking.ts) and [legacy SDK enumeration](https://github.com/can1357/oh-my-pi/blob/717f97f4d22b3d65c4a4eef6a744255d46f4d1a6/packages/coding-agent/src/extensibility/legacy-pi-ai-shim.ts).
+- On Pi, an explicit thinking-level mapping excludes levels mapped to `null`; `xhigh` and `max` require explicit non-null mappings. The menu does not add model- or provider-specific exceptions.
+- Scoped model entries retain the model but omit unsupported thinking suffixes from both their selection patterns and labels. A stale thinking pick or model pick with an unsupported thinking suffix is rejected before changing either the model or thinking level.
+
 ### Tools and assistant-authored actions
 
 - `telegram_attach(paths, chat_id?, thread_id?, caption?)` is the stable artifact delivery tool for generated files. During Telegram turns it queues files for the active reply; outside Telegram turns it sends files directly to the paired/default chat, the registered follower's assigned thread, or an explicit `chat_id` plus optional `thread_id` when this Pi instance owns `/telegram-connect` or is registered with the multi-instance bus.
